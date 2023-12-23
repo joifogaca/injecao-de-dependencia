@@ -1,6 +1,7 @@
 ﻿using Dapper;
+using DependencyRoomBooking.Model;
+using DependencyRoomBooking.Repositories.Contracts;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.Data.SqlClient;
 using RestSharp;
 
 namespace DependencyRoomBooking.Controllers;
@@ -8,26 +9,22 @@ namespace DependencyRoomBooking.Controllers;
 [ApiController]
 public class BookController : ControllerBase
 {
+    private readonly IBookRoomCommandRepository _bookRoomCommandRepository;
+
+    public BookController(IBookRoomCommandRepository bookRoomCommandRepository)
+    {
+        _bookRoomCommandRepository = bookRoomCommandRepository;
+    }
     public async Task<IActionResult> Book(BookRoomCommand command)
     {
         // Recupera o usuário
-        await using var connection = new SqlConnection();
-        var customer = await connection
-            .QueryFirstOrDefaultAsync<Customer?>("SELECT * FROM [Customer] WHERE [Email]=@email",
-                new { command.Email });
+        var customer = _bookRoomCommandRepository.GetCustomerByEmailAsync(command.Email);
 
         if (customer == null)
             return NotFound();
 
         // Verifica se a sala está disponível
-        var room = await connection.QueryFirstOrDefaultAsync<Book?>(
-            "SELECT * FROM [Book] WHERE [Room]=@room AND [Date] BETWEEN @dateStart AND @dateEnd",
-            new
-            {
-                Room = command.RoomId,
-                DateStart = command.Day.Date,
-                DateEnd = command.Day.Date.AddDays(1).AddTicks(-1),
-            });
+        var room = _bookRoomCommandRepository.GetRoomFromCommand(command);
 
         // Se existe uma reserva, a sala está indisponível
         if (room is not null)
@@ -56,32 +53,9 @@ public class BookController : ControllerBase
         var book = new Book(command.Email, command.RoomId, command.Day);
 
         // Salva os dados
-        await connection.ExecuteAsync("INSERT INTO [Book] VALUES(@date, @email, @room)", new
-        {
-            book.Date,
-            book.Email,
-            book.Room
-        });
+       _bookRoomCommandRepository.CreateBook(book);
 
         // Retorna o número da reserva
         return Ok();
     }
 }
-
-public class BookRoomCommand
-{
-    public string Email { get; set; }
-    public Guid RoomId { get; set; }
-    public DateTime Day { get; set; }
-    public CreditCard CreditCard { get; set; }
-}
-
-public record PaymentResponse(int Code, string Status);
-
-public record Customer(string Email);
-
-public record Room(Guid Id, string Name);
-
-public record Book(string Email, Guid Room, DateTime Date);
-
-public record CreditCard(string Number, string Holder, string Expiration, string Cvv);
