@@ -1,6 +1,7 @@
 ﻿using Dapper;
 using DependencyRoomBooking.Model;
 using DependencyRoomBooking.Repositories.Contracts;
+using DependencyRoomBooking.Services.Contracts;
 using Microsoft.AspNetCore.Mvc;
 using RestSharp;
 
@@ -10,11 +11,15 @@ namespace DependencyRoomBooking.Controllers;
 public class BookController : ControllerBase
 {
     private readonly IBookRoomCommandRepository _bookRoomCommandRepository;
-
-    public BookController(IBookRoomCommandRepository bookRoomCommandRepository)
+    private readonly IPaymentService _paymentService;
+    public BookController(IBookRoomCommandRepository bookRoomCommandRepository, IPaymentService paymentService)
     {
         _bookRoomCommandRepository = bookRoomCommandRepository;
+        _paymentService = paymentService;
     }
+
+    [Route("v1/command")]
+    [HttpPost]
     public async Task<IActionResult> Book(BookRoomCommand command)
     {
         // Recupera o usuário
@@ -31,22 +36,15 @@ public class BookController : ControllerBase
             return BadRequest();
 
         // Tenta fazer um pagamento
-        var client = new RestClient("https://payments.com");
-        var request = new RestRequest()
-            .AddQueryParameter("api_key", "c20c8acb-bd76-4597-ac89-10fd955ac60d")
-            .AddJsonBody(new
-            {
-                User = command.Email,
-                CreditCard = command.CreditCard
-            });
-        var response = await client.PostAsync<PaymentResponse>(request, new CancellationToken());
+      
+        var response = await _paymentService.MakePayment(command);
 
         // Se a requisição não pode ser completa
         if (response is null)
             return BadRequest();
 
         // Se o status foi diferente de "pago"
-        if (response?.Status != "paid")
+        if (response.Status != "paid")
             return BadRequest();
 
         // Cria a reserva
